@@ -1,0 +1,262 @@
+Copy Paste of Google Doc design brainstorm:
+
+Checklist
+Read this spec.
+Set up the assignment.
+Watch the assignment overview video.
+Do the week 9 tutorial exercises yourself.
+Attend the tutorial.
+Read the FAQ for assignment 3 on the wiki.
+Do the assignment.
+Don't forget to commit your most recent changes.
+Submit your assignment.
+
+
+Before you start, you should work out:
+what data you need to keep track of, and 
+what operations are required.
+The following questions may assist you in designing the contents of your page table
+What information do you need to store for each page?
+How does the page table get populated?
+Is the data structure global or a per-process data structure?
+Note: Applications expect pages to contain zeros when first used. This implies that newly allocated frames that are used to back pages should be zero-filled prior to mapping
+
+Hints:
+To implement a page table, have a close look at the dumbvm implementation, especially vm_fault(). Although it is simple, you should get an idea on how to approach the rest of the assignment.
+One approach to implementing the assignment is in the following order:
+Review how the specified page table works from the lectures, and understand its relationship with the TLB.
+Review the assignment specification and its relationship with the supplied code.
+dumbvm is not longer compiled into the OS/161 kernel for this assignment (kern/arch/mips/vm/dumbvm.c), but you can review it as an example implementation within the interface/framework you will be working within.
+Work out a basic design for your page table implementation.
+Modify kern/vm/vm.c to insert , lookup, and update page table entries, and keep the TLB consistent with the page table.
+Implement the TLB exception handler vm_fault() in vm.c using your page table.
+Implement the functions in kern/vm/addrspace.c that are required for basic functionality (e.g. as_create(), as_prepare_load(), etc.). Allocating user pages in as_define_region() may also simplify your assignment, however good solution allocate pages in vm_fault().
+Test and debug this. Use the debugger!
+Note: Interrupts should be disabled when writing to the TLB, see dumbvm for an example. Otherwise, unexpected concurrency issues can occur.
+
+
+Potentially use: array.h -> os161 tools to dynamically create and manipulate arrays
+		Can use in as_create to make an array address space
+
+Summary To-Do
+=============================================================================================
+WE ARE IMPROVING ON “DUMBVM” (kern/arch/mips/vm/dumbvm.c)
+Application virtual memory in kuseg
+Translated by TLB
+TLB content determined by
+Page Table
+Valid Regions
+vm_fault() (implement this)
+Occurs at TLB refill, not enough entries in TLB for application. 
+Look at Page Table for a new entry and add it to TLB to resolve fault. 
+If no valid entry, check valid regions if access is within range. If not, return error code.
+If valid entry, allocate frame, insert translation into Page Table, insert entry into TLB.
+Kernel memory in kseg0
+Translated by fixed offset (phys_addr = virt_addr - 0x80000000)
+Allocators already provided (which ones??)
+Unsw.c:
+
+
+vaddr_t alloc_kpages (unsigned npages)
+^ uses frame allocation functions
+Free_kpages
+ram_getsize ? (can only be used once!)
+ram_getfirstfree
+alloc_oneframe(), alloc_multiple_frames
+free_frames()
+
+load_elf()
+=============================================================================================
+Loads ELF header from executable file into kernel memory
+Check if it’s an ELF file
+For each “Program Header”
+Call as_define_region() (implement this)
+Given addr space, should add to structure [base, size, permissions]
+Load the segment from the file required
+ad
+Virtual Memory
+=============================================================================================
+R3000 has 4gb total (2^32) [0x00000000 <-> 0xffffffff]
+Half is given to KUSEG [0x00000000 <-> 0x79999999]
+Virtual Address Bits: 
+[01111111111111111111111111111111] 1st bit not used bc < 0x79999999
+
+Page Table
+=============================================================================================
+Structure:
+paddr_t ** pagetable; (change type to match EntryLo, so we can load pagetable leaf right into TLB without modifying it)
+
+pagetable[0][0][0]
+pagetable[a]; a = 2^8
+pagetable[0][b]; b = 2^6
+pagetable[0][0][c] = paddr_t; c = 2^6    // page-table entry only has page frame number
+                                                               // don’t have to worry about extra bits?
+
+
+For this assignment, you will implement a 3-level (hierarchical) page table. The first level of the page table must be indexed using the 8 most significant bits of the page number, the second-level nodes of the page table must be indexed using the next 6 bits of the page number, and the third-level page table nodes must be index using the least significant bits of the page number. Thus the first-level node will have 256 (2^8) entries, and the second-level and third-level nodes will have 64 (2^6) entries.
+Note that a hierarchical page table is a lazy data-structure. This means that the contents of the page table, including the second-level and third-level nodes in the hierarchy, are only allocated when they are needed.
+Location:
+Per-process
+Maybe in process struct?
+Objects in vm.h:
+=============================================================================================
+
+struct paddr_t **pagetable
+
+Data Structure:
+=============================================================================================
+High level: 
+Virtual Address Space is a 2gb array or pages
+Pages: PAGE_SIZE = 4096 (#defined)
+Regions: Cluster of pages of size = npages;    npages = mem_needed/PAGE_SIZE   (mem_needed specified in as_define_region)
+
+struct addrspace {
+            Linked list of region
+            Pointer to Page-Table
+}
+
+
+Regions contain pages
+
+struct region {
+
+         vaddr_t  vbase       // look at dumbvm
+         size_t    npages
+         // no pbase, handled by page table
+         int         permissions
+         Int         prev_permissions  // store permissions before prepare/ complete_load, 
+
+         Linked List:
+         struct region next    // ”One of the key advantages of paging is not needing contiguous
+                                     //  allocation, and thus avoiding external fragmentation.”
+}
+
+Page Table:
+paddr_t ** pagetable; (change type to match EntryLo, so we can load pagetable leaf right into TLB without modifying it)
+Virtual Address Bits: 
+[01111111111111111111111111111111]
+    a      b     c      offset
+pagetable[a][b][c]
+pagetable[a]; a = 2^8
+pagetable[0][b]; b = 2^6
+pagetable[0][0][c] = EntryLo paddr_t; c = 2^6 
+
+
+
+Functions in addrspace.c:
+=============================================================================================
+
+
+
+as_create
+create a new empty address space. You need to make sure this gets called in all the right places. You may find you want to change the argument list. May return NULL on out-of-memory error.
+Design:
+struct addrspace *as_create (void)
+struct addrspace “as” = kmalloc()
+Check NULL
+Initialise addrspace “as” elements
+
+
+as_copy
+create a new address space that is an exact copy of an old one. Probably calls as_create to get a new empty address space and fill it in, but that's up to you.
+Design:
+int as_copy (struct addrspace *src, struct addrspace **ret)
+struct addrspace * new_as = NULL?
+new_as = as_create()
+Copy elements into new_as
+If error, destroy new_as and return error
+
+
+
+as_activate
+make curproc's address space the one currently "seen" by the processor.
+Design:
+void  as_activate (void)
+<copy from dumbvm.c - Kevin>
+
+
+as_deactivate
+unload curproc's address space so it isn't currently "seen" by the processor. This is used to avoid potentially "seeing" it while it's being destroyed.
+Design:
+void  as_deactivate (void)
+Null the TLB?
+
+
+as_destroy 
+dispose of an address space. You may need to change the way this works if implementing user-level threads.
+Design:
+void  as_destroy(struct addrspace *)
+Free elements of addrspace (whatever they are)
+Free addrspace 
+
+
+as_define_region
+set up a region of memory within the address space.
+Design:
+int  as_define_region (struct addrspace *as,
+                                      vaddr_t vaddr, 
+                                      size_t sz,
+                                      int readable,
+                                      int writeable,
+                                      int executable);
+Refer to kern/arch/mips/include/vm.h #define USERSPACETOP  MIPS_KSEG0
+Stuff
+Check valid regions using masks
+Add new region into page table
+Tbd…
+(all pages are read-write, so (void) cast r,w,x?)
+
+
+
+
+as_prepare_load
+this is called before actually loading from an executable into the address space.
+Design:
+int as_prepare_load (struct addrspace *as)
+Stuff
+Marks regions r-w
+
+
+as_complete_load
+this is called when loading from an executable is complete.
+Design:
+int as_complete_load (struct addrspace *as)
+Stuff
+Marks regions back to read only
+
+
+as_define_stack
+set up the stack region in the address space.   (Normally called *after* as_complete_load().) Hands back the initial stack pointer for the new process.
+Design:
+int as_define_stack (struct addrspace *as, vaddr_t *initstackptr)
+Refer to kern/arch/mips/include/vm.h #define USERSTACK = USERSPACETOP
+Find: what STACK_SIZE ? Is this for the user?
+Use as_define_region?
+as_define_region(as, USERSTACK, stacksize??, r=1, w=1, e=0)
+Set stackptr to USERSTACK address
+
+
+Note that when using dumbvm, addrspace.c is not used and these functions are found in dumbvm.c.
+
+
+
+Functions in vm.c:
+=============================================================================================
+int vm_fault (int faulttype, vaddr_t faultaddress)
+
+Write this!!!!
+
+Search linked list to see if faultaddress is within any of the previously loaded regions in the user addrspace
+Disable interrupts (spl = splhigh()))
+
+
+void vm_bootstrap(void)
+{
+    /* Initialise any global components of your VM sub-system here.
+     *
+     * You may or may not need to add anything here depending what's
+     * provided or required by the assignment spec.
+     */
+}
+
+
