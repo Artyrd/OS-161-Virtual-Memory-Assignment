@@ -1,4 +1,4 @@
-# OS161-Virtual-Memory-Assignment
+# OS/161-Virtual-Memory-Assignment
 
 Implemented the virtual memory sub-system of OS/161.
 This involved creating and engineering:
